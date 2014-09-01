@@ -5,7 +5,7 @@ Greasemonkey userscript that highlights kanji on websites based on their level o
 The script is optimized for people who follow a set order in which they learn the kanji and by default matches the levels of the [WaniKani] website. Making the script more useful to the general public is high on the list.
 
 ![Example screenshot](http://i.imgur.com/zNDgmcY.png)
-Here, all kanji that are already classified as known are not highlighted in any way. A yellow shade means that a kanji will be learned very soon using the specified order, and red means that it can be found in the latter half of the remaining kanji. Grey means that the kanji is not part of the list used.
+Here, all kanji that are already classified as known are not highlighted green. A yellow shade means that a kanji will be learned very soon using the specified order, and red means that it can be found in the latter half of the remaining kanji. Grey means that the kanji is not part of the list used.
 
 [WaniKani]: http://wanikani.com
 
