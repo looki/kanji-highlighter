@@ -5,7 +5,7 @@
 // @include     *
 // @exclude     http*://*wanikani.com*
 // @exclude     http*://*xreddit.com*
-// @version     1.6.6
+// @version     1.6.7
 // @grant       GM_addStyle
 // @grant       GM_registerMenuCommand
 // @grant       GM_setValue
@@ -14,8 +14,6 @@
 // @grant       GM_setClipboard
 // @grant       GM_openInTab
 // @require     http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js
-// @downloadURL https://greasyfork.org/scripts/722-kanji-highlighter/code/Kanji%20Highlighter.user.js
-// @updateURL   https://greasyfork.org/scripts/722-kanji-highlighter/code/Kanji%20Highlighter.meta.js
 // ==/UserScript==
 
 // Visiblity coefficient for markup
@@ -154,9 +152,12 @@ function loadSettings() {
     if (dictValue === undefined) {
         dictionary = getWKKanjiLevels();
         GM_setValue("dictionary", JSON.stringify(dictionary));
+        GM_setValue("levelCount", 50);
     } else {
         dictionary = JSON.parse(dictValue);
     }
+    if (GM_getValue("levelCount") === undefined)
+        GM_setValue("levelCount", 50);
     unsafeWindow.dictionary = dictionary;
 
     // Legacy support
@@ -206,7 +207,6 @@ function setRenderSettings() {
     do {
         if (null === (tmp = window.prompt(t + "officially learned (green) kanji, or 0 otherwise.", (render & R_KNOWN) ? 1 : 0)))
             break;
-        console.log(tmp);
         if (tmp > 0)
             result |= R_KNOWN;
 
@@ -238,8 +238,6 @@ function setRenderSettings() {
         alert("You need to refresh the page in order to see the changes.");
         GM_setValue("renderSettings", result);
     } while (0);
-
-    console.log("in: " + render + ", out: " + result);
 }
 
 /* 
@@ -296,7 +294,7 @@ function undoHighlighting() {
 function setKanjiLevel() {
     var level = window.prompt("Please enter the highest kanji level that should be marked as 'known'.", GM_getValue("level", 1));
     if (level !== null) {
-        level = Math.max(1, Math.min(GM_getValue("levelCount"), parseInt(level, 10)));
+        level = Math.max(1, Math.min(GM_getValue("levelCount", 1), parseInt(level, 10)));
         GM_setValue("level", level);
     }
 }
@@ -458,8 +456,6 @@ function highlightKanji(selector) {
     var levelThreshold = unsafeWindow.levelThreshold;
     var levelCount = unsafeWindow.levelCount;
     var renderSettings = unsafeWindow.renderSettings;
-
-    console.log(renderSettings, R_KNOWN, renderSettings & R_KNOWN);
 
     $(selector).forEachText(function (str) {
         var output = "";
