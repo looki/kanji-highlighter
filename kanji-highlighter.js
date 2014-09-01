@@ -203,7 +203,7 @@ function loadSettings() {
 function setRenderSettings() {
     var t = "Enter 1 if you want to highlight ";
     var tmp, result = 0;
-    var render = GM_getValue("renderSettings", 0);
+    var render = GM_getValue("renderSettings", unsafeWindow.renderSettings);
     do {
         if (null === (tmp = window.prompt(t + "officially learned (green) kanji, or 0 otherwise.", (render & R_KNOWN) ? 1 : 0)))
             break;
