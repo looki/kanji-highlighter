@@ -3,9 +3,9 @@
 // @namespace   japanese
 // @description Highlights all kanji on a website using a specific color, depending on the 'level' that it can be found in (optimized for WaniKani users).
 // @include     *
-// @exclude     http*://*wanikani.com*
-// @exclude     http*://*xreddit.com*
-// @version     1.6.7
+// @exclude     http*://mail.google.com*
+// @exclude     http*://*reddit.com*
+// @version     1.7.0.0
 // @grant       GM_addStyle
 // @grant       GM_registerMenuCommand
 // @grant       GM_setValue
@@ -17,7 +17,7 @@
 // ==/UserScript==
 
 // Visiblity coefficient for markup
-var COL_ALPHA = 0.6;
+var COL_ALPHA = 0.5;
 
 // Number of color steps to generate for the unknown Kanji levels
 var COLOR_STEPS = 5;
@@ -28,13 +28,13 @@ var COL_TO = [255, 128, 128]; // red
 
 // Special colors
 var COL_KNOWN = "rgba(221, 255, 208, " + COL_ALPHA + ")";
-var COL_CURRENT = "rgba(170, 255, 150, " + COL_ALPHA + ")";
+var COL_CURRENT = "rgba(140, 255, 120, " + COL_ALPHA + ")";
 var COL_ADDITIONAL = "rgba(208, 255, 255, " + COL_ALPHA + ")"; // User-added known kanji that have not been learned in one of the levels
 var COL_SEEN = "rgba(255, 192, 255, " + COL_ALPHA + ")"; // User-added seen kanji
-var COL_MISSING = "rgba(130, 130, 130, " + COL_ALPHA + ")";
+var COL_MISSING = "rgba(190, 190, 190, " + COL_ALPHA + ")";
 
 // Matches a kanji in a string
-var kanjiRegexp = /[\u4e00-\u9faf]/;//\u3400-\u4dbf]/;
+var kanjiRegexp = /[\u4e00-\u9faf\u3400-\u4dbf]/;
 // Matches all non-kanji characters
 var notKanjiRegexp = /[^\u4e00-\u9faf\u3400-\u4dbf]+/g;
 
@@ -45,6 +45,10 @@ var R_UNKNOWN = 4;
 var R_ADD_K = 8;
 var R_ADD_S = 16;
 var R_CURRENT = 32;
+
+// CSS that applies to all classes
+var CSS_GLOBAL = "display:inline!important;margin:0!important;padding:0!important;border:0!important;"
+                + "outline:0!important;font-size:100%!important;vertical-align:baseline!important;";
 
 // Main
 window.addEventListener("load", function (e) {
@@ -69,6 +73,7 @@ window.addEventListener("load", function (e) {
     GM_registerMenuCommand("Reset additionally known", function() { resetCustomKanji("known"); });
     GM_registerMenuCommand("Reset additionally seen", function() { resetCustomKanji("seen"); });
     GM_registerMenuCommand("Copy list of known kanji", copyKnownKanji);
+    GM_registerMenuCommand("Copy list of unknown kanji", copyUnknownKanji);
 
     // GM_deleteValue("level");
     // GM_deleteValue("dictionary");
@@ -152,12 +157,12 @@ function loadSettings() {
     if (dictValue === undefined) {
         dictionary = getWKKanjiLevels();
         GM_setValue("dictionary", JSON.stringify(dictionary));
-        GM_setValue("levelCount", 50);
+        GM_setValue("levelCount", dictionary.length);
     } else {
         dictionary = JSON.parse(dictValue);
     }
-    if (GM_getValue("levelCount") === undefined)
-        GM_setValue("levelCount", 50);
+    if (GM_getValue("levelCount") === undefined && dictionary !== undefined)
+        GM_setValue("levelCount", dictionary.length);
     unsafeWindow.dictionary = dictionary;
 
     // Legacy support
@@ -168,22 +173,22 @@ function loadSettings() {
 
     // Store global values
     unsafeWindow.renderSettings = GM_getValue("renderSettings", 0xff);
-    unsafeWindow.levelCount = GM_getValue("levelCount", 50); // TODO: Allow changing
+    unsafeWindow.levelCount = GM_getValue("levelCount", getWKKanjiLevels().length); // TODO: Allow changing
     unsafeWindow.levelThreshold = GM_getValue("level", 1);
     unsafeWindow.knownKanji = GM_getValue("knownKanji", "");
     unsafeWindow.seenKanji = GM_getValue("seenKanji", "");
     unsafeWindow.infoPage = GM_getValue("infoPage", "https://www.wanikani.com/kanji/$K");
-    unsafeWindow.infoFallback = GM_getValue("infoPage", "http://beta.jisho.org/search/$K #kanji");
+    unsafeWindow.infoFallback = GM_getValue("infoPage", "http://jisho.org/search/$K #kanji");
 
     // Build linear map
     unsafeWindow.kanjiMap = buildKanjiMap();
 
     // Generate CSS classes
-    css = ".wk_K { background-color: " + COL_KNOWN + "; color: black; } ";
-    css += ".wk_X { background-color: " + COL_MISSING + "; color: black  } ";
-    css += ".wk_A { background-color: " + COL_ADDITIONAL + "; color: black  } ";
-    css += ".wk_S { background-color: " + COL_SEEN + "; color: black } ";
-    css += ".wk_C { background-color: " + COL_CURRENT + "; color: black } ";
+    css = ".wk_K {  " + CSS_GLOBAL + " background-color: " + COL_KNOWN + " !important; /*color: black !important;*/ } ";
+    css += ".wk_X { " + CSS_GLOBAL + " background-color: " + COL_MISSING + " !important; /*color: black !important;*/ } ";
+    css += ".wk_A { " + CSS_GLOBAL + " background-color: " + COL_ADDITIONAL + " !important; /*color: black !important;*/ } ";
+    css += ".wk_S { " + CSS_GLOBAL + " background-color: " + COL_SEEN + " !important; /*color: black !important;*/ } ";
+    css += ".wk_C { " + CSS_GLOBAL + " background-color: " + COL_CURRENT + " !important; /*color: black !important;*/ } ";
     // Now generate a rainbow for the unknown levels
     for (i = 0; i < COLOR_STEPS; ++i) {
         ii = i * 1.0 / (COLOR_STEPS - 1);
@@ -192,7 +197,7 @@ function loadSettings() {
         b = COL_FROM[2] * (1 - ii) + COL_TO[2] * ii;
 
         bgCol = 'rgba(' + Math.floor(r) + ',' + Math.floor(g) + ', ' + Math.floor(b) + ', ' + COL_ALPHA + ')';
-        css += ".wk_" + i + " { color: black; background-color: " + bgCol + " } ";
+        css += ".wk_" + i + " { " + CSS_GLOBAL + " /*color: black;*/ background-color: " + bgCol + " !important; } ";
     }
     GM_addStyle(css);
 }
@@ -364,8 +369,9 @@ function resetKanjiDict() {
     if (window.prompt("You are about to reset your level dictionary. If you have modified it on your own, "
         + "all changes will be lost. Enter 'yes' to confirm.", "") == "yes")
     {
-        GM_setValue("dictionary", JSON.stringify(getWKKanjiLevels()));
-        GM_setValue("levelCount", 50);
+        var wk = getWKKanjiLevels();
+        GM_setValue("dictionary", JSON.stringify(wk));
+        GM_setValue("levelCount", wk.length);
     }
 }
 
@@ -376,7 +382,7 @@ function setCustomKanji(mode) {
     var kanji = window.prompt("Please enter a list of kanji that should always be regarded as '" + mode + "'. " +
         "You may insert an entire text - all non-kanji characters will automatically be removed.", GM_getValue(mode + "Kanji", ""));
     if (kanji !== null) {
-        kanji =getKanjiInString(kanji);
+        kanji = getKanjiInString(kanji);
         GM_setValue(mode + "Kanji", kanji);
     }
 }
@@ -445,6 +451,20 @@ function rescanWebsite() {
             output += key;
     }
     window.prompt("Press ctrl+C to copy this list. It includes all kanji up to the current level and those marked as known manually.", output);
+ }
+
+ /* 
+ * Lets the user copy a list of each kanji not yet learned
+ */
+ function copyUnknownKanji() {
+    kanjiMap = unsafeWindow.kanjiMap;
+    levelThreshold = unsafeWindow.levelThreshold;
+    output = "";
+    for (var key in kanjiMap) {
+        if (kanjiMap[key] > levelThreshold)
+            output += key;
+    }
+    window.prompt("Press ctrl+C to copy this list. It includes all kanji that were not yet learned.", output);
  }
 
 /*
@@ -627,7 +647,17 @@ function getWKKanjiLevels() {
         /*47:*/ "芯欺巾爽佐瞭粘砕哀尺柳霧詐伊炊憎帽婆如墜塀扉扇憩恨幣崖掌挿畳滴胴箸虹唇粧",
         /*48:*/ "蛇辱闇悔憶溶輝耐踊賢咲脇遂殴塗班培盾麻脅彩尽蓄騎隙畜飢霜貼鉢帳穫斜灯迅蚊餓",
         /*49:*/ "陛俗駒桑悟抽拓誓紫剛礎鶴壇珠概征劣淡煮覆勘奨衰隔潤妃謀浸尼唯刈陶拘",
-        /*50:*/ "漂簿墳壮奮仰銘搬把淀伯堤訂巧堰彰廷邪鰐峰亭疫晶洞涯后翻偶軌諮漫蟹鬱唐駄"
+        /*50:*/ "漂簿墳壮奮仰銘搬把淀伯堤訂巧堰彰廷邪鰐峰亭疫晶洞涯后翻偶軌諮漫蟹鬱唐駄",
+        /*51:*/ "亮偉召喚塚媛慈挟枯沸浦渦濯燥玄瓶耕聡肪肯脂膚苗蓮襟貞軒軟邸郊郡釈隅隻頂",
+        /*52:*/ "乃倫偏呂唆噴孤怠恒惰慢擁殊没牲猟祥秩糧綾膨芳茨覇貫賠輔遇遭鎖陥陳隼須颯",
+        /*53:*/ "丹准剰啓壌寛帥徐惨戴披据搭曙浄瓜稿緋緯繊胞胡舗艇莉葵蒙虐諒諭錦随駿騰鯉",
+        /*54:*/ "且傲冠勲卸叙呆呈哺尚庶悠愚拐杏栞栽欄疎疾痴粛紋茎茜荘謡践逸酬酷鎌阿顕鯨",
+        /*55:*/ "之伏佳傍凝奉尿弥循悼惜愉憂憾抹旦昌朴栃栓瑛癒粗累脊虜該賓赴遼那郭鎮髄龍",
+        /*56:*/ "凛凡匠呉嘉宰寂尉庸弊弦恭悦拍搾摂智柴洪猶碑穀窒窮紳縛縫舶蝶轄遥錯陵靖飽",
+        /*57:*/ "乙伐俸凸凹哉喝坪堕峡弔敢旋楓槽款漬烏瑠盲紺羅胎腸膜萌蒼衡賊遍遮酵醸閲鼓",
+        /*58:*/ "享傑凌剖嘱奔媒帆忌慨憤戯扶暁朽椎殻淑漣濁瑞璃硫窃絹肖菅藩譜赦迭酌錠陪鶏",
+        /*59:*/ "亜侮卑叔吟堪姻屯岬峠崇慶憧拙擬曹梓汰沙浪漆甚睦礁禍篤紡胆蔑詠遷酪鋳閑雌",
+        /*60:*/ "倹劾匿升唄囚坑妄婿寡廉慕拷某桟殉泌渓湧漸煩狐畔痢矯罷藍藻蛮謹逝醜"
     ];
 };
 
