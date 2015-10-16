@@ -5,7 +5,7 @@
 // @include     *
 // @exclude     http*://mail.google.com*
 // @exclude     http*://*reddit.com*
-// @version     1.7.0.0
+// @version     1.7.1.1
 // @grant       GM_addStyle
 // @grant       GM_registerMenuCommand
 // @grant       GM_setValue
@@ -138,11 +138,11 @@ document.addEventListener('keydown', function(e) {
 
 function loadSettings() {
     // First time running the script
-    if (GM_getValue("level") === undefined) {
+    if (GM_getValue("level") == null) {
 
         // Circumvent weird bug
         GM_setValue("level", 1);
-        if (GM_getValue("level") === undefined)
+        if (GM_getValue("level") == null)
             return;
         GM_deleteValue("level");
 
@@ -154,14 +154,14 @@ function loadSettings() {
     // Load the dictionary - Wanikani's by default
     var dictionary;
     var dictValue = GM_getValue("dictionary");
-    if (dictValue === undefined) {
+    if (dictValue == null) {
         dictionary = getWKKanjiLevels();
         GM_setValue("dictionary", JSON.stringify(dictionary));
         GM_setValue("levelCount", dictionary.length);
     } else {
         dictionary = JSON.parse(dictValue);
     }
-    if (GM_getValue("levelCount") === undefined && dictionary !== undefined)
+    if (GM_getValue("levelCount") == null && dictionary !== null)
         GM_setValue("levelCount", dictionary.length);
     unsafeWindow.dictionary = dictionary;
 
@@ -179,6 +179,7 @@ function loadSettings() {
     unsafeWindow.seenKanji = GM_getValue("seenKanji", "");
     unsafeWindow.infoPage = GM_getValue("infoPage", "https://www.wanikani.com/kanji/$K");
     unsafeWindow.infoFallback = GM_getValue("infoPage", "http://jisho.org/search/$K #kanji");
+    unsafeWindow.dictionary = dictionary;
 
     // Build linear map
     unsafeWindow.kanjiMap = buildKanjiMap();
@@ -318,7 +319,7 @@ function setKanjiDict() {
         kanjiDict = window.prompt("Paste the new dictionary here.", kanjiDict);
 
         // Abort if nothing entiered
-        if (kanjiDict === null)
+        if (kanjiDict == null)
             break;
 
         try {
@@ -580,13 +581,13 @@ function buildKanjiMap(dict, additional) {
         // Only use the 'additional' tag for kanji that have not been in one of the levels yet!
         // ... and kanji that are not in the dictionary at all, of course!
         if (map[customKnown[i]] > unsafeWindow.levelThreshold
-         || map[customKnown[i]] === undefined)
+         || map[customKnown[i]] == null)
             map[customKnown[i]] = -1;
     }
     for (var i = 0; i < customSeen.length; ++i) {
         // Do the same for seen as for known
         if (map[customSeen[i]] > unsafeWindow.levelThreshold
-         || map[customSeen[i]] === undefined)
+         || map[customSeen[i]] == null)
             map[customSeen[i]] = -2;
     }
 
