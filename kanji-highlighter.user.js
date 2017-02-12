@@ -15,7 +15,6 @@
 // @grant       GM_openInTab
 // @require     http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js
 // ==/UserScript==
-
 // Visiblity coefficient for markup
 var COL_ALPHA = 0.5;
 
@@ -38,6 +37,9 @@ var kanjiRegexp = /[\u4e00-\u9faf\u3400-\u4dbf]/;
 // Matches all non-kanji characters
 var notKanjiRegexp = /[^\u4e00-\u9faf\u3400-\u4dbf]+/g;
 
+// Genki Chapter offset (starts at chapter 3)
+var genki_start = 2;
+
 // Renderer setting mask bits
 var R_KNOWN = 1;
 var R_MISSING = 2;
@@ -49,11 +51,11 @@ var R_CURRENT = 32;
 // CSS that applies to all classes
 var CSS_GLOBAL = "display:inline!important;margin:0!important;padding:0!important;border:0!important;"
                 + "outline:0!important;font-size:100%!important;vertical-align:baseline!important;";
-
 // Main
 window.addEventListener("load", function (e) {
     // Register menu items
     GM_registerMenuCommand("Set current level", setKanjiLevel, "l");
+    GM_registerMenuCommand("Set Genki level", setGenkiLevel);
     GM_registerMenuCommand("Show kanji statistics", countKanji);
     GM_registerMenuCommand("Re-scan website", rescanWebsite, "r");
     GM_registerMenuCommand("Open info for selected kanji", openKanjiDetails, "o");
@@ -77,6 +79,7 @@ window.addEventListener("load", function (e) {
 
     // GM_deleteValue("level");
     // GM_deleteValue("dictionary");
+    //GM_deleteValue("genkiDictionary");
 
     loadSettings();
     rescanWebsite();
@@ -153,7 +156,9 @@ function loadSettings() {
 
     // Load the dictionary - Wanikani's by default
     var dictionary;
+    var genkiDictionary;
     var dictValue = GM_getValue("dictionary");
+    var genkiValue = GM_getValue("genkiDictionary");
     if (dictValue == null) {
         dictionary = getWKKanjiLevels();
         GM_setValue("dictionary", JSON.stringify(dictionary));
@@ -161,9 +166,19 @@ function loadSettings() {
     } else {
         dictionary = JSON.parse(dictValue);
     }
+    if (genkiValue == null) {
+        genkiDictionary = getGENKIKanjiLevels();
+        GM_setValue("genkiDictionary", JSON.stringify(genkiDictionary));
+        GM_setValue("genkiLevels", genkiDictionary.length + genki_start);
+    } else {
+        genkiDictionary = JSON.parse(genkiValue);
+    }
     if (GM_getValue("levelCount") == null && dictionary !== null)
         GM_setValue("levelCount", dictionary.length);
+    if (GM_getValue("genkiLevels") == null && genkiDictionary !== null)
+        GM_setValue("genkiLevels", genkiDictionary.length + genki_start);
     unsafeWindow.dictionary = dictionary;
+    unsafeWindow.genkiDictionary = genkiDictionary;
 
     // Legacy support
     if (old = GM_getValue("additionalKanji")) {
@@ -175,6 +190,8 @@ function loadSettings() {
     unsafeWindow.renderSettings = GM_getValue("renderSettings", 0xff);
     unsafeWindow.levelCount = GM_getValue("levelCount", getWKKanjiLevels().length); // TODO: Allow changing
     unsafeWindow.levelThreshold = GM_getValue("level", 1);
+    unsafeWindow.genkiLevels = GM_getValue("genkiLevels", getGENKIKanjiLevels().length + genki_start);
+    unsafeWindow.genkiLevel = GM_getValue("genkiLevel", 1);
     unsafeWindow.knownKanji = GM_getValue("knownKanji", "");
     unsafeWindow.seenKanji = GM_getValue("seenKanji", "");
     unsafeWindow.infoPage = GM_getValue("infoPage", "https://www.wanikani.com/kanji/$K");
@@ -183,6 +200,8 @@ function loadSettings() {
 
     // Build linear map
     unsafeWindow.kanjiMap = buildKanjiMap();
+    // Support for Genki kanjiMap
+    unsafeWindow.genkiMap = buildGenkiMap();
 
     // Generate CSS classes
     css = ".wk_K {  " + CSS_GLOBAL + " background-color: " + COL_KNOWN + " !important; /*color: black !important;*/ } ";
@@ -246,12 +265,12 @@ function setRenderSettings() {
     } while (0);
 }
 
-/* 
+/*
  * Specifies the URLs to use when opening kanji detail pages.
  */
 function setInfoURLs() {
     var infoPage, infoFallback;
-    if (infoPage = window.prompt("Enter the URL to use when opening a kanji detail page " 
+    if (infoPage = window.prompt("Enter the URL to use when opening a kanji detail page "
         + "($K will be replaced with the kanji).", unsafeWindow.infoPage)) {
         unsafeWindow.infoPage = infoPage;
 
@@ -267,10 +286,14 @@ function setInfoURLs() {
  */
 function countKanji() {
     currentLevel = unsafeWindow.levelThreshold;
+    genkiLevel = unsafeWindow.genkiLevel;
     kanjiMap = buildKanjiMap();
+    genkiMap = buildGenkiMap();
+    var knownKanji = "";
     var known = 0, unknown = 0, additional = 0, formallyknown = 0, seen = 0;
     for (var kanji in kanjiMap) {
         level = kanjiMap[kanji];
+        gLevel = genkiMap[kanji];
         if (level <= currentLevel && level >= -1)
             known++;
         else if (level == -2)
@@ -279,8 +302,19 @@ function countKanji() {
             unknown++;
         if (level == -1)
             additional++;
-        else if (level <= currentLevel)
+        else if (level <= currentLevel) {
             formallyknown++;
+            knownKanji += kanji;
+        }
+    }
+    for (var kanji in genkiMap) {
+        level = genkiMap[kanji];
+        if (level <= genkiLevel && !knownKanji.includes(kanji)) {
+            known++;
+            formallyknown++;
+            knownKanji += kanji;
+        } else if (level > genkiLevel && !knownKanji.includes(kanji))
+            unknown++;
     }
     alert((formallyknown) + " kanji have already been learned. There are " + additional +
         " additionally known kanji. The number of known kanji in total is " + known + ", plus " + seen + " marked as seen.");
@@ -302,6 +336,17 @@ function setKanjiLevel() {
     if (level !== null) {
         level = Math.max(1, Math.min(GM_getValue("levelCount", 1), parseInt(level, 10)));
         GM_setValue("level", level);
+    }
+}
+
+/*
+ * Prompts a dialog that allows the user to add/modify the Genki level of Kanji
+ */
+function setGenkiLevel() {
+    var level = window.prompt("Please enter you current Genki level (Any value under 3 will disable this feature)", GM_getValue("genkiLevel", 1));
+    if (level !== null) {
+        level = Math.max(1, parseInt(level, 10));
+        GM_setValue("genkiLevel", level);
     }
 }
 
@@ -416,7 +461,7 @@ function remCustomKanji(mode) {
 }
 
 /*
- * Removes all kanji from the additionally known/seen list 
+ * Removes all kanji from the additionally known/seen list
  */
 function resetCustomKanji(mode) {
     if (window.prompt("You are about to reset list of additional " + mode + "kanji. "
@@ -440,7 +485,7 @@ function rescanWebsite() {
     }
 }
 
-/* 
+/*
  * Lets the user copy a list of each kanji marked as "known" (including additional ones)
  */
  function copyKnownKanji() {
@@ -454,7 +499,7 @@ function rescanWebsite() {
     window.prompt("Press ctrl+C to copy this list. It includes all kanji up to the current level and those marked as known manually.", output);
  }
 
- /* 
+ /*
  * Lets the user copy a list of each kanji not yet learned
  */
  function copyUnknownKanji() {
@@ -474,8 +519,11 @@ function rescanWebsite() {
 function highlightKanji(selector) {
     // Retrieve global variables
     var kanjiMap = unsafeWindow.kanjiMap;
+    var genkiMap = unsafeWindow.genkiMap;
     var levelThreshold = unsafeWindow.levelThreshold;
     var levelCount = unsafeWindow.levelCount;
+    var genkiLevel = unsafeWindow.genkiLevel;
+    var genkiLevels = unsafeWindow.genkiLevels;
     var renderSettings = unsafeWindow.renderSettings;
 
     $(selector).forEachText(function (str) {
@@ -486,8 +534,23 @@ function highlightKanji(selector) {
 
             // Not a kanji, just keep it the same
             if (kanjiRegexp.test(chr)) {
-                var level = kanjiMap[chr];
-
+                var genkiKanjiLevel = genkiMap[chr];
+                var wkLevel = kanjiMap[chr];
+                var level = wkLevel;
+                var usrLevel = levelThreshold;
+                if (!isNaN(genkiKanjiLevel) && isNaN(wkLevel)) {
+                    level = genkiKanjiLevel;
+                    usrLevel = genkiLevel;
+                } else if (!isNaN(genkiKanjiLevel) && !isNaN(wkLevel)) {
+                    //Take the closest to being learned or oldest learned between wk & genki
+                    var wkDiff = wkLevel - levelThreshold;
+                    var genkiDiff = genkiKanjiLevel - genkiLevel;
+                    if (wkDiff > genkiDiff) {
+                        //keep genki
+                        level = genkiKanjiLevel;
+                        usrLevel = genkiLevel;
+                    }
+                }
                 // Assume that Kanji is known
                 var className = "";
 
@@ -500,21 +563,21 @@ function highlightKanji(selector) {
                 else if ((renderSettings & R_MISSING) && isNaN(level))
                     className = "X";
                 // Kanji on the *current* level
-                else if ((renderSettings & R_CURRENT) && level == levelThreshold)
+                else if ((renderSettings & R_CURRENT) && level == usrLevel)
                     className = "C";
                 // Kanji known
-                else if ((renderSettings & R_KNOWN) && level <= levelThreshold)
+                else if ((renderSettings & R_KNOWN) && level <= usrLevel)
                     className = "K";
                 // Kanji that will be in one of the upper levels
-                else if ((renderSettings & R_UNKNOWN) && level > levelThreshold) {
-                    var classIndex = (level - levelThreshold) / (levelCount - levelThreshold);
+                else if ((renderSettings & R_UNKNOWN) && level > usrLevel) {
+                    var classIndex = (level - usrLevel) / (levelCount - usrLevel);
                     classIndex *= (COLOR_STEPS - 1);
                     className = Math.round(classIndex);
                 }
 
                 // NOTE to self: !== is needed because 0 == ""
 
-                // Level changed from previous char, 
+                // Level changed from previous char,
                 if (className !== previousClass) {
                     if (previousClass !== "")
                         output += "</span>";
@@ -557,7 +620,7 @@ function getKanjiInString(str) {
     return str;
 }
 
-/* 
+/*
  * Converts and returns a one-dimensional Kanji->Level map of the specified Level->Kanji dictionary.
  */
 function buildKanjiMap(dict, additional) {
@@ -591,6 +654,25 @@ function buildKanjiMap(dict, additional) {
             map[customSeen[i]] = -2;
     }
 
+    return map;
+}
+
+/*
+ * Returns a one-dimensional Kanji->Level map.
+ */
+function buildGenkiMap() {
+    var map = {};
+    var dict = unsafeWindow.genkiDictionary;
+
+    // Genki starts learning Kanji in Chapter 3
+    var offset = (dict instanceof Array) ? 3 : 0;
+
+    for (var level in dict) {
+        var kanjiList = dict[level];
+        for (var i = 0; i < kanjiList.length; ++i) {
+            map[kanjiList[i]] = parseInt(level) + offset;
+        }
+    }
     return map;
 }
 
@@ -659,6 +741,35 @@ function getWKKanjiLevels() {
         /*58:*/ "享傑凌剖嘱奔媒帆忌慨憤戯扶暁朽椎殻淑漣濁瑞璃硫窃絹肖菅藩譜赦迭酌錠陪鶏",
         /*59:*/ "亜侮卑叔吟堪姻屯岬峠崇慶憧拙擬曹梓汰沙浪漆甚睦礁禍篤紡胆蔑詠遷酪鋳閑雌",
         /*60:*/ "倹劾匿升唄囚坑妄婿寡廉慕拷某桟殉泌渓湧漸煩狐畔痢矯罷藍藻蛮謹逝醜"
+    ];
+};
+
+/*
+ * Returns all GENKI Kanji categorized by their respective chapters. This is an optional dictionary that can be added.
+ */
+function getGENKIKanjiLevels() {
+    return [
+    /*3:*/ "一二三四五六七八九十百千方円時",
+    /*4:*/ "日本人月火水木金土曜上下中半",
+    /*5:*/ "山川元気天私今田女男見行食飲",
+    /*6:*/ "東西南北口出右左分先生大学外国",
+    /*7:*/ "京子小会社父母高校毎語文帰入",
+    /*8:*/ "員新聞作仕事電車休言読思次何",
+    /*9:*/ "午後前名白雨書友間家話少古知来",
+    /*10:*/ "住正年空買町長道雪立自夜朝持",
+    /*11:*/ "手紙好近明病院映画歌市所勉強有旅",
+    /*12:*/ "昔々神早起牛使働連別度赤青色",
+    /*13:*/ "物鳥料理特安飯肉悪体空港着同海昼",
+    /*14:*/ "彼代留族親切英店去急乗当音楽医者",
+    /*15:*/ "死意味注夏魚寺広転借走建地場足通",
+    /*16:*/ "供世界全部始週以考開屋方運動教室",
+    /*17:　*/ "歳習主結婚集発表品字活写真歩野",
+    /*18:*/ "目的力洋服堂授業試験貸図館終宿題",
+    /*19:*/ "春秋冬花様不姉兄漢卒工研究質問多",
+    /*20:　*/ "皿声茶止枚両無払心笑絶対痛最続",
+    /*21:　*/ "信経台風犬重初若送幸計遅配第妹",
+    /*22:*/ "記銀回夕黒用守末待残番駅説案内忘",
+    /*23:　*/ "顔情怒変相横比化違悲調査果感答"
     ];
 };
 
